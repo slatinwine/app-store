@@ -31,6 +31,7 @@
   .wrap{max-width:1120px;margin:0 auto;padding:56px 28px 80px}
 
   header{margin-bottom:36px}
+  .head-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
   .kicker{
     font-size:12px;letter-spacing:.32em;text-transform:uppercase;
     color:var(--ink-2);margin-bottom:14px;
@@ -42,6 +43,15 @@
   .sub{margin-top:10px;font-size:14px;color:var(--ink-2);line-height:1.7}
   .sub a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ink-2)}
   .sub a:hover{opacity:.7}
+
+  /* 账号入口：登录 / 已登录邮箱 */
+  .auth-btn{
+    background:transparent;border:1px solid var(--line);border-radius:999px;
+    padding:8px 18px;font-size:13px;color:var(--ink-2);cursor:pointer;
+    font-family:inherit;transition:all .15s;white-space:nowrap;flex:none;
+  }
+  .auth-btn:hover{border-color:var(--ink-2);color:var(--ink)}
+  .auth-btn.in{border-color:var(--ink);color:var(--ink);font-weight:600}
 
   .toolbar{margin:30px 0 8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
   .search{
@@ -145,12 +155,18 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="kicker">GITHUB APP STORE</div>
-    <h1>slatinwine <span class="thin">· 应用商店</span></h1>
-    <p class="sub">
-      GitHub 公开仓库的网页版商店 · 点击圆角矩形图标即跳转到对应的在线应用（已开启 Pages 的仓库）或仓库主页 ·
-      由 GitHub Action 每日自动重建 · <a href="https://github.com/slatinwine?tab=repositories" target="_blank" rel="noopener">查看全部仓库</a>
-    </p>
+    <div class="head-row">
+      <div style="min-width:0;flex:1">
+        <div class="kicker">GITHUB APP STORE</div>
+        <h1>slatinwine <span class="thin">· 应用商店</span></h1>
+        <p class="sub">
+          GitHub 公开仓库的网页版商店 · 点击圆角矩形图标即跳转到对应的在线应用（已开启 Pages 的仓库）或仓库主页 ·
+          由 GitHub Action 每日自动重建 · <a href="https://github.com/slatinwine?tab=repositories" target="_blank" rel="noopener">查看全部仓库</a>
+        </p>
+      </div>
+      <!-- 账号入口：弹窗打开注册中心，登录成功后回传用户标识 -->
+      <button class="auth-btn" id="authBtn" type="button">登录 / 注册</button>
+    </div>
   </header>
 
   <div class="toolbar">
@@ -252,6 +268,50 @@ tabsEl.addEventListener("click", e=>{
   renderTabs(); render();
 });
 qEl.addEventListener("input", ()=>{ curQ = qEl.value; render(); });
+
+/* ---- 账号中心登录（WorkBuddy 云端账号体系） ----
+ * 点击「登录 / 注册」弹窗打开注册中心；登录成功后注册中心 postMessage
+ * 回传 { email, id }（仅展示用标识，会话令牌不出账号中心域名）。
+ * 后续做收藏 / 评论等按用户存数据的功能时，对应页面建议挂在
+ * 账号中心同一应用下，以直接复用云端会话。 */
+const ACCOUNT_URL = "https://account-center-12268.app.workbuddy.host/";
+const ACCOUNT_ORIGIN = "https://account-center-12268.app.workbuddy.host";
+const AUTH_KEY = "appstore_user_v1";
+const authBtn = document.getElementById("authBtn");
+
+function getStoreUser(){
+  try { return JSON.parse(localStorage.getItem(AUTH_KEY)) } catch (e) { return null }
+}
+function renderAuth(){
+  const u = getStoreUser();
+  if (u && u.email){
+    authBtn.textContent = [...u.email][0].toUpperCase() + " " + u.email;
+    authBtn.classList.add("in");
+  } else {
+    authBtn.textContent = "登录 / 注册";
+    authBtn.classList.remove("in");
+  }
+}
+authBtn.addEventListener("click", () => {
+  const u = getStoreUser();
+  if (u && u.email){
+    if (confirm("退出登录 " + u.email + " ？")){
+      localStorage.removeItem(AUTH_KEY);
+      renderAuth();
+    }
+    return;
+  }
+  window.open(ACCOUNT_URL + "?popup=1", "account-center", "popup,width=430,height=720");
+});
+window.addEventListener("message", (e) => {
+  if (e.origin !== ACCOUNT_ORIGIN) return;
+  const d = e.data;
+  if (d && d.source === "account-center" && d.type === "login-success" && d.user){
+    localStorage.setItem(AUTH_KEY, JSON.stringify(d.user));
+    renderAuth();
+  }
+});
+renderAuth();
 
 renderTabs(); render();
 </script>
