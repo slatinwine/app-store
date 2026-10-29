@@ -274,7 +274,7 @@ qEl.addEventListener("input", ()=>{ curQ = qEl.value; render(); });
  * 回传 { email, id }（仅展示用标识，会话令牌不出账号中心域名）。
  * 后续做收藏 / 评论等按用户存数据的功能时，对应页面建议挂在
  * 账号中心同一应用下，以直接复用云端会话。 */
-const ACCOUNT_URL = "https://account-center-12268.app.workbuddy.host/";
+const ACCOUNT_URL = "https://account-center-12268.app.workbuddy.host/?sharecode=2SWMGQ6PVY";
 const ACCOUNT_ORIGIN = "https://account-center-12268.app.workbuddy.host";
 const AUTH_KEY = "appstore_user_v1";
 const authBtn = document.getElementById("authBtn");
@@ -301,7 +301,7 @@ authBtn.addEventListener("click", () => {
     }
     return;
   }
-  window.open(ACCOUNT_URL + "?popup=1", "account-center", "popup,width=430,height=720");
+  window.open(ACCOUNT_URL + "&popup=1", "account-center", "popup,width=430,height=720");
 });
 window.addEventListener("message", (e) => {
   if (e.origin !== ACCOUNT_ORIGIN) return;
