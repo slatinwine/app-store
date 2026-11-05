@@ -135,6 +135,11 @@
   }
   .badge.live{background:var(--ink);color:var(--bg);border-color:var(--ink)}
   .badge.fork{border-style:dashed}
+  /* IP 去重使用人数 */
+  .badge.users{color:var(--ink-2);font-variant-numeric:tabular-nums;letter-spacing:0;white-space:nowrap}
+  .badge.users.ready{color:var(--ink);border-color:#BEBAB2;background:#EDEAE3}
+  .site-uv{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .site-uv b{color:var(--ink);font-weight:700}
 
   footer{
     margin-top:64px;padding-top:20px;border-top:1px solid var(--line);
@@ -173,6 +178,7 @@
     <input class="search" id="q" type="text" placeholder="搜索应用名称、描述或仓库名…">
     <div class="tabs" id="tabs"></div>
     <div class="count" id="count"></div>
+    <div class="site-uv" id="siteUv" title="按公网 IP 去重统计的累计独立访客">独立访客 <b>—</b> 人</div>
   </div>
 
   <main id="main"></main>
@@ -181,7 +187,8 @@
   <footer>
     图标右下角小圆点为项目主语言 · <span class="badge live" style="font-size:10.5px;padding:1px 7px">在线</span> 表示可直接打开应用，
     无标记则跳转到 GitHub 仓库 · 虚线框标记为 Fork 项目。<br>
-    由 GitHub Action 每日自动重建 · <a href="https://github.com/slatinwine/app-store" target="_blank" rel="noopener">github.com/slatinwine/app-store</a>
+    由 GitHub Action 每日自动重建 · <a href="https://github.com/slatinwine/app-store" target="_blank" rel="noopener">github.com/slatinwine/app-store</a><br>
+    使用人数：按公网 IP 的 SHA-256 摘要去重，同一 IP 对同一应用只计一次，统计从本商店打开该应用的独立访客；页面只上传摘要、不保存原始 IP。计数服务暂不可用时显示「—」，不影响应用打开。
   </footer>
 </div>
 
@@ -223,7 +230,8 @@ function cardHTML(a){
   if (a.fork) badges.push(`<span class="badge fork">Fork</span>`);
   if (a.stars) badges.push(`<span class="badge">${a.stars} star</span>`);
   badges.push(`<span class="badge">${a.n}</span>`);
-  return `<a class="card" href="${a._url}" target="_blank" rel="noopener">
+  badges.push(`<span class="badge users" data-users="${a.n}">— 人使用</span>`);
+  return `<a class="card" href="${a._url}" target="_blank" rel="noopener" data-repo="${a.n}">
     <div class="icon">${monogram(a)}${dot}</div>
     <div class="meta">
       <div class="name">${a.t}${a.t===a.n ? "" : ` <span class="en">${a.n}</span>`}</div>
@@ -254,6 +262,7 @@ function render(){
   main.innerHTML = html;
   emptyEl.style.display = list.length ? "none" : "block";
   countEl.textContent = `${list.length} / ${APPS.length} 个应用`;
+  syncUsers();
 }
 
 function renderTabs(){
@@ -313,7 +322,120 @@ window.addEventListener("message", (e) => {
 });
 renderAuth();
 
+/* ---- IP 统计使用人数 · 统一看板 ----
+ * 每个应用一个计数器；访客公网 IP 经 SHA-256 取摘要前 16 位，
+ * 配合「已访问」标记，实现同一 IP 对同一应用只计一次。
+ * 计数走公开匿名接口，页面只上传摘要，不落原始 IP。
+ */
+const STAT_API = "https://abacus.jasoncameron.dev";
+const STAT_NS  = "slatinwine-appstore-2026";
+const statCache = new Map();
+let visitorDigest = null;
+
+const statUrl = (op, key) => `${STAT_API}/${op}/${STAT_NS}/${key}`;
+function code8(s){
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++){
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+async function sha16(s){
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+}
+async function statGet(key){
+  try{
+    const r = await fetch(statUrl("get", key), { cache: "no-store" });
+    if (r.status === 404) return 0;              // 计数器尚未建立
+    if (!r.ok) return null;
+    const j = await r.json();
+    return typeof j.value === "number" ? j.value : null;
+  }catch(e){ return null }
+}
+async function statHit(key){
+  try{
+    const r = await fetch(statUrl("hit", key), { cache: "no-store" });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return typeof j.value === "number" ? j.value : null;
+  }catch(e){ return null }
+}
+async function getVisitorDigest(){
+  if (visitorDigest) return visitorDigest;
+  let ip = "";
+  try{
+    const r = await fetch("https://api.ip.sb/geoip", { cache: "no-store" });
+    ip = (await r.json()).ip || "";
+  }catch(e){}
+  if (!ip){
+    try{
+      const r = await fetch("https://api.ipify.org?format=json", { cache: "no-store" });
+      ip = (await r.json()).ip || "";
+    }catch(e){}
+  }
+  if (!ip){
+    let id = localStorage.getItem("appstore_anon_v1");
+    if (!id){
+      id = "anon-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+      localStorage.setItem("appstore_anon_v1", id);
+    }
+    ip = id;
+  }
+  try { visitorDigest = await sha16(ip); }
+  catch(e){ visitorDigest = code8(ip) + code8(ip.split("").reverse().join("")); }
+  return visitorDigest;
+}
+function paintUsers(repo, n){
+  const has = (n !== null && n !== undefined);
+  const txt = has ? `${n} 人使用` : "— 人使用";
+  main.querySelectorAll(`[data-users="${repo}"]`).forEach(el => {
+    el.textContent = txt;
+    el.classList.toggle("ready", has && n > 0);
+  });
+}
+async function syncUsers(){
+  const repos = [...new Set([...main.querySelectorAll("[data-users]")].map(el => el.dataset.users))];
+  const missing = repos.filter(r => !statCache.has(r));
+  for (let i = 0; i < missing.length; i += 8){
+    await Promise.all(missing.slice(i, i + 8).map(async r => {
+      statCache.set(r, await statGet("u-" + code8(r)));
+    }));
+    repos.forEach(r => { if (statCache.has(r)) paintUsers(r, statCache.get(r)); });
+  }
+  repos.forEach(r => { if (statCache.has(r)) paintUsers(r, statCache.get(r)); });
+}
+/* 卡片本来就是新标签打开，页面不卸载，上报请求可正常完成 */
+main.addEventListener("click", (e) => {
+  const card = e.target.closest(".card");
+  if (!card || !card.dataset.repo) return;
+  const repo = card.dataset.repo;
+  (async () => {
+    const h = await getVisitorDigest();
+    const seenKey = "v-" + h + "-" + code8(repo);
+    if (await statGet(seenKey) !== 0) return;     // 已计过或计数服务不可用
+    await statHit(seenKey);
+    const n = await statHit("u-" + code8(repo));
+    if (n !== null){ statCache.set(repo, n); paintUsers(repo, n); }
+  })();
+});
+async function registerSite(){
+  const h = await getVisitorDigest();
+  const seen = await statGet("s-" + h);
+  let uv = null;
+  if (seen === 0){
+    await statHit("s-" + h);
+    uv = await statHit("site-uv");
+  } else if (seen !== null){
+    uv = await statGet("site-uv");
+  }
+  document.getElementById("siteUv").innerHTML =
+    `独立访客 <b>${uv === null ? "—" : uv}</b> 人`;
+}
+
 renderTabs(); render();
+registerSite();
 </script>
 </body>
 </html>
