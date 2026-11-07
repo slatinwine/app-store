@@ -20,3 +20,7 @@
 ```bash
 GITHUB_TOKEN=ghp_xxx node build.mjs
 ```
+
+## 关注公众号
+
+![公众号二维码](qrcode.jpg)
